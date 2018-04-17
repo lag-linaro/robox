@@ -37,7 +37,7 @@
 #include <cutils/sockets.h>
 #include <hardware/sensors.h>
 
-#if 0
+#if 1 // Lee - Enabled debugging
 #define  D(...)  ALOGD(__VA_ARGS__)
 #else
 #define  D(...)  ((void)0)
@@ -192,10 +192,13 @@ static int sensor_device_send_command_locked(SensorDevice* dev,
                                              const char* cmd) {
     int fd = sensor_device_get_fd_locked(dev);
     if (fd < 0) {
+            E("%s: sensor_device_get_fd_locked() failed: %d",
+	      __FUNCTION__, fd);
         return fd;
     }
 
     int ret = 0;
+    D("%s: Actually sending: %s (len: strlen(cmd)) (fd=%d)", __FUNCTION__, cmd, fd);
     if (qemud_channel_send(fd, cmd, strlen(cmd)) < 0) {
         ret = -errno;
         E("%s(fd=%d): ERROR: %s", __FUNCTION__, fd, strerror(errno));
@@ -484,7 +487,7 @@ static int sensor_device_activate(struct sensors_poll_device_t *dev0,
 {
     SensorDevice* dev = (void*)dev0;
 
-    D("%s: handle=%s (%d) enabled=%d", __FUNCTION__,
+    D("LEEEEEE .... %s: handle=%s (%d) enabled=%d", __FUNCTION__,
         _sensorIdToName(handle), handle, enabled);
 
     /* Sanity check */
@@ -513,6 +516,8 @@ static int sensor_device_activate(struct sensors_poll_device_t *dev0,
                  _sensorIdToName(handle),
                  enabled != 0);
 
+	D("%s: Trying to send: %s", __FUNCTION__, command);
+
         ret = sensor_device_send_command_locked(dev, command);
         if (ret < 0) {
             E("%s: when sending command errno=%d: %s", __FUNCTION__, -ret,
@@ -520,7 +525,10 @@ static int sensor_device_activate(struct sensors_poll_device_t *dev0,
         } else {
             dev->active_sensors = new_sensors;
         }
-    }
+    } else
+	    D("%s: !changed active (%d) new_sensors (%d : 0x%x) changed (%d)",
+	      __FUNCTION__, active, new_sensors, new_sensors, changed);
+	    
     pthread_mutex_unlock(&dev->lock);
     return ret;
 }
@@ -666,6 +674,7 @@ static int sensors__get_sensors_list(struct sensors_module_t* module __unused,
         E("%s: no qemud connection", __FUNCTION__);
         goto out;
     }
+    D("%s: Actually sending: %s (fd=%d)", __FUNCTION__, "list-sensors", fd);
     ret = qemud_channel_send(fd, "list-sensors", -1);
     if (ret < 0) {
         E("%s: could not query sensor list: %s", __FUNCTION__,

@@ -18,7 +18,9 @@
 #include "anbox/network/published_socket_connector.h"
 #include "anbox/network/connection_context.h"
 #include "anbox/network/socket_helper.h"
+#include "anbox/system_configuration.h"
 #include "anbox/logger.h"
+#include "anbox/utils.h"
 
 namespace anbox {
 namespace network {
@@ -30,10 +32,14 @@ PublishedSocketConnector::PublishedSocketConnector(
       runtime_(rt),
       connection_creator_(connection_creator),
       acceptor_(rt->service(), socket_file_) {
+  socket_dir_ = SystemConfiguration::instance().socket_dir();
   start_accept();
 }
 
-PublishedSocketConnector::~PublishedSocketConnector() noexcept {}
+PublishedSocketConnector::~PublishedSocketConnector() noexcept {
+  std::remove(socket_file_.c_str());
+  utils::remove_paths({socket_dir_});
+}
 
 void PublishedSocketConnector::start_accept() {
   auto socket = std::make_shared<boost::asio::local::stream_protocol::socket>(runtime_->service());

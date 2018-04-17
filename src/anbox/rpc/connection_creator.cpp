@@ -34,7 +34,10 @@ ConnectionCreator::ConnectionCreator(const std::shared_ptr<Runtime>& rt,
           std::make_shared<network::Connections<network::SocketConnection>>()),
       message_processor_factory_(factory) {}
 
-ConnectionCreator::~ConnectionCreator() noexcept {}
+ConnectionCreator::~ConnectionCreator() noexcept {
+  if (connection_)
+    connections_->remove(connection_->id());
+}
 
 void ConnectionCreator::create_connection_for(
     std::shared_ptr<boost::asio::local::stream_protocol::socket> const&
@@ -51,11 +54,11 @@ void ConnectionCreator::create_connection_for(
       std::make_shared<network::LocalSocketMessenger>(socket);
   auto const processor = message_processor_factory_(messenger);
 
-  auto const& connection = std::make_shared<network::SocketConnection>(
+  connection_ = std::make_shared<network::SocketConnection>(
       messenger, messenger, next_id(), connections_, processor);
-  connection->set_name("rpc");
-  connections_->add(connection);
-  connection->read_next_message();
+  connection_->set_name("rpc");
+  connections_->add(connection_);
+  connection_->read_next_message();
 }
 
 int ConnectionCreator::next_id() { return next_connection_id_.fetch_add(1); }

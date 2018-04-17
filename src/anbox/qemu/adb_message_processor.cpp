@@ -25,11 +25,11 @@
 #include <functional>
 
 namespace {
-const unsigned short default_adb_client_port{5037};
+const unsigned short default_adb_client_port{5037}; /* adb  running on host (Server) */
 // For the listening port we have to use an odd port in the 5555-5585 range so
 // the host can find us on start. See
 // https://developer.android.com/studio/command-line/adb.html.
-const unsigned short default_host_listen_port{5559};
+const unsigned short default_host_listen_port{5559}; /* adbd running on guest (client) */
 constexpr const char *loopback_address{"127.0.0.1"};
 const std::string accept_command{"accept"};
 const std::string ok_command{"ok"};

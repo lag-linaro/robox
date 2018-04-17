@@ -45,7 +45,8 @@ PRODUCT_COPY_FILES += \
 	vendor/anbox/android/ueventd.goldfish.rc:root/ueventd.goldfish.rc \
 	vendor/anbox/android/camera/media_profiles.xml:system/etc/media_profiles.xml \
 	vendor/anbox/android/camera/media_codecs.xml:system/etc/media_codecs.xml \
-	hardware/libhardware_legacy/audio/audio_policy.conf:system/etc/audio_policy.conf
+	hardware/libhardware_legacy/audio/audio_policy.conf:system/etc/audio_policy.conf \
+        vendor/anbox/android/anbox-touch.idc:system/usr/idc/anbox-touch.idc
 
 PRODUCT_CHARACTERISTICS := emulator
 

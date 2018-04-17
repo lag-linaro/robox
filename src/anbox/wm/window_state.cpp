@@ -25,18 +25,20 @@ WindowState::WindowState()
       frame_(graphics::Rect::Invalid),
       package_name_(""),
       task_(Task::Invalid),
-      stack_(Stack::Id::Invalid) {}
+      stack_(Stack::Id::Invalid),
+      rotation_angle_(0) {}
 
 WindowState::WindowState(const Display::Id &display, bool has_surface,
                          const graphics::Rect &frame,
                          const std::string &package_name, const Task::Id &task,
-                         const Stack::Id &stack)
+                         const Stack::Id &stack, int rotation)
     : display_(display),
       has_surface_(has_surface),
       frame_(frame),
       package_name_(package_name),
       task_(task),
-      stack_(stack) {}
+      stack_(stack),
+      rotation_angle_(rotation) {}
 
 WindowState::~WindowState() {}
 }  // namespace wm

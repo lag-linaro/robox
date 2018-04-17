@@ -61,6 +61,8 @@ class Platform : public std::enable_shared_from_this<Platform>,
 
   void set_renderer(const std::shared_ptr<Renderer> &renderer) override;
   void set_window_manager(const std::shared_ptr<wm::Manager> &window_manager) override;
+  void unset_renderer() override;
+  void unset_window_manager() override;
 
   void set_clipboard_data(const ClipboardData &data) override;
   ClipboardData get_clipboard_data() override;

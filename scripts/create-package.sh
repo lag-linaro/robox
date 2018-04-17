@@ -23,11 +23,20 @@ sudo mount -o loop,ro $system $workdir/system
 sudo cp -ar $workdir/system/* $rootfs/system
 sudo umount $workdir/system
 
-gcc -o $workdir/uidmapshift external/nsexec/uidmapshift.c
-sudo $workdir/uidmapshift -b $rootfs 0 100000 65536
-
 # FIXME
 sudo chmod +x $rootfs/anbox-init.sh
+
+if [ -e android.img ]; then
+    DATE=`date +%F_%R`
+    SAVETO=android-old-$DATE.img
+
+    echo "#########################################################"
+    echo "# WARNING: Old android.img still exists.                 "
+    echo "#          Moving it to $SAVETO.                         "
+    echo "#########################################################"
+
+    mv android.img $SAVETO
+fi
 
 sudo mksquashfs $rootfs android.img -comp xz -no-xattrs
 sudo chown $USER:$USER android.img

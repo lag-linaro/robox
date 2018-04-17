@@ -92,9 +92,15 @@ anbox::cmds::Launch::Launch()
   flag(cli::make_flag(cli::Name{"stack"},
                       cli::Description{"Which window stack the activity should be started on. Possible: default, fullscreen, freeform"},
                       stack_));
+  flag(cli::make_flag(cli::Name{"run-multiple"},
+                      cli::Description{"Allows more than one session-manager to run simultaneously, e.g. --run-multiple=<uniq_container_id>"},
+                      container_id_));
   flag(cli::make_flag(cli::Name{"use-system-dbus"},
                       cli::Description{"Use system instead of session DBus"},
                       use_system_dbus_));
+  flag(cli::make_flag(cli::Name{"no-start-sess-mgr"},
+                      cli::Description{"If the Session Managaer is not present, do not try to start it"},
+                      no_start_session_manager_));
 
   action([this](const cli::Command::Context&) {
     if (!intent_.valid()) {
@@ -109,6 +115,9 @@ anbox::cmds::Launch::Launch()
       INFO("Signal %i received. Good night.", static_cast<int>(signal));
       trap->stop();
     });
+
+    if (!container_id_.empty())
+      SystemConfiguration::instance().set_container_id(container_id_, true);
 
     auto rt = Runtime::create();
 
@@ -131,7 +140,12 @@ anbox::cmds::Launch::Launch()
         stub = dbus::stub::ApplicationManager::create_for_bus(bus);
         break;
       } catch (std::exception &err) {
-        WARNING("Anbox session manager service isn't running, trying to start it.");
+	if (no_start_session_manager_) {
+	  ERROR("Anbox session manager service isn't running.  Exiting");
+	  return EXIT_FAILURE;;
+	}
+
+	WARNING("Anbox session manager service isn't running, trying to start it.");
 
         // Give us a splash screen as long as we're trying to connect
         // with the session manager so the user knows something is

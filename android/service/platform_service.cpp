@@ -49,6 +49,7 @@ anbox::PlatformApiStub::WindowStateUpdate::Window PlatformService::unpack_window
     auto frame_bottom = data.readInt32();
     auto task_id = data.readInt32();
     auto stack_id = data.readInt32();
+    auto rotation_angle = data.readInt32();
 
     return anbox::PlatformApiStub::WindowStateUpdate::Window{
         -1, // Display id will be added by the caller
@@ -57,6 +58,7 @@ anbox::PlatformApiStub::WindowStateUpdate::Window PlatformService::unpack_window
         {frame_left, frame_top, frame_right, frame_bottom},
         task_id,
         stack_id,
+        rotation_angle,
     };
 }
 

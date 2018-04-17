@@ -32,6 +32,14 @@
 #include <sys/types.h>
 #pragma GCC diagnostic pop
 
+#define INPUT_AS_TOUCH 1
+
+// get status of screen orientation from global variable
+extern int get_rotation_status();
+
+// configure window width and height dynamically
+int32_t win_width, win_height;
+
 namespace anbox {
 namespace platform {
 namespace sdl {
@@ -71,11 +79,26 @@ Platform::Platform(
 
   graphics::emugl::DisplayInfo::get()->set_resolution(display_frame.width(), display_frame.height());
 
+  /*
+   * set x and y co-ordinates according to
+   * window width and height dynamically
+   */
+  win_width = display_frame.width();
+  win_height = display_frame.height();
+
   pointer_ = input_manager->create_device();
+#ifdef INPUT_AS_TOUCH
+  pointer_->set_name("anbox-touch");
+#else
   pointer_->set_name("anbox-pointer");
+#endif
   pointer_->set_driver_version(1);
   pointer_->set_input_id({BUS_VIRTUAL, 2, 2, 2});
   pointer_->set_physical_location("none");
+  pointer_->set_abs_bit(ABS_X);
+  pointer_->set_abs_bit(ABS_Y);
+
+#ifndef INPUT_AS_TOUCH
   pointer_->set_key_bit(BTN_MOUSE);
   // NOTE: We don't use REL_X/REL_Y in reality but have to specify them here
   // to allow InputFlinger to detect we're a cursor device.
@@ -84,6 +107,13 @@ Platform::Platform(
   pointer_->set_rel_bit(REL_HWHEEL);
   pointer_->set_rel_bit(REL_WHEEL);
   pointer_->set_prop_bit(INPUT_PROP_POINTER);
+#else
+  pointer_->set_key_bit(BTN_TOUCH);
+  pointer_->set_abs_max(ABS_X,display_frame.width());
+  pointer_->set_abs_max(ABS_Y,display_frame.height());
+  pointer_->set_abs_min(ABS_X,0);
+  pointer_->set_abs_min(ABS_Y,0);
+#endif
 
   keyboard_ = input_manager->create_device();
   keyboard_->set_name("anbox-keyboard");
@@ -109,6 +139,14 @@ void Platform::set_renderer(const std::shared_ptr<Renderer> &renderer) {
 
 void Platform::set_window_manager(const std::shared_ptr<wm::Manager> &window_manager) {
   window_manager_ = window_manager;
+}
+
+void Platform::unset_renderer() {
+  renderer_.reset();
+}
+
+void Platform::unset_window_manager() {
+  window_manager_.reset();
 }
 
 void Platform::process_events() {
@@ -155,11 +193,19 @@ void Platform::process_input_event(const SDL_Event &event) {
 
   switch (event.type) {
     case SDL_MOUSEBUTTONDOWN:
+#ifdef INPUT_AS_TOUCH
+      mouse_events.push_back({EV_KEY, BTN_TOUCH, 1});
+#else
       mouse_events.push_back({EV_KEY, BTN_LEFT, 1});
+#endif
       mouse_events.push_back({EV_SYN, SYN_REPORT, 0});
       break;
     case SDL_MOUSEBUTTONUP:
+#ifdef INPUT_AS_TOUCH
+      mouse_events.push_back({EV_KEY, BTN_TOUCH, 0});
+#else
       mouse_events.push_back({EV_KEY, BTN_LEFT, 0});
+#endif
       mouse_events.push_back({EV_SYN, SYN_REPORT, 0});
       break;
     case SDL_MOUSEMOTION:
@@ -176,8 +222,25 @@ void Platform::process_input_event(const SDL_Event &event) {
         // When running the whole Android system in a single window we don't
         // need to reacalculate and the pointer position as they are already
         // relative to our window.
-        x = event.motion.x;
-        y = event.motion.y;
+
+        // Compute x and y coordinates based on screen orientation
+
+        if (get_rotation_status () == 1) {
+                x = win_width  - event.motion.x;
+                y = win_height - event.motion.y;
+        }
+        else if (get_rotation_status () == 2) {
+                x = event.motion.x;
+                y = event.motion.y;
+        }
+        else if (get_rotation_status () == 3) {
+                x = win_width  - event.motion.x;
+                y = win_height - event.motion.y;
+        }
+        else {
+                x = event.motion.x;
+                y = event.motion.y;
+        }
       }
 
       // NOTE: Sending relative move events doesn't really work and we have
@@ -188,13 +251,17 @@ void Platform::process_input_event(const SDL_Event &event) {
       // We're sending relative position updates here too but they will be only
       // used by the Android side EventHub/InputReader to determine if the cursor
       // was moved. They are not used to find out the exact position.
+#ifndef INPUT_AS_TOUCH
       mouse_events.push_back({EV_REL, REL_X, event.motion.xrel});
       mouse_events.push_back({EV_REL, REL_Y, event.motion.yrel});
+#endif
       mouse_events.push_back({EV_SYN, SYN_REPORT, 0});
       break;
     case SDL_MOUSEWHEEL:
+#ifndef INPUT_AS_TOUCH
       mouse_events.push_back(
           {EV_REL, REL_WHEEL, static_cast<std::int32_t>(event.wheel.y)});
+#endif
       break;
     case SDL_KEYDOWN: {
       const auto code = KeycodeConverter::convert(event.key.keysym.scancode);
@@ -242,7 +309,8 @@ void Platform::window_deleted(const Window::Id &id) {
     return;
   }
   if (auto window = w->second.lock())
-    window_manager_->remove_task(window->task());
+    if (window_manager_)
+      window_manager_->remove_task(window->task());
   windows_.erase(w);
 }
 
@@ -251,7 +319,8 @@ void Platform::window_wants_focus(const Window::Id &id) {
   if (w == windows_.end()) return;
 
   if (auto window = w->second.lock())
-    window_manager_->set_focused_task(window->task());
+    if (window_manager_)
+      window_manager_->set_focused_task(window->task());
 }
 
 void Platform::window_moved(const Window::Id &id, const std::int32_t &x,
@@ -263,7 +332,8 @@ void Platform::window_moved(const Window::Id &id, const std::int32_t &x,
     auto new_frame = window->frame();
     new_frame.translate(x, y);
     window->update_frame(new_frame);
-    window_manager_->resize_task(window->task(), new_frame, 3);
+    if (window_manager_)
+      window_manager_->resize_task(window->task(), new_frame, 3);
   }
 }
 
@@ -281,7 +351,8 @@ void Platform::window_resized(const Window::Id &id,
     // representing this window and then we're back to the original size of
     // the task.
     window->update_frame(new_frame);
-    window_manager_->resize_task(window->task(), new_frame, 3);
+    if (window_manager_)
+      window_manager_->resize_task(window->task(), new_frame, 3);
   }
 }
 

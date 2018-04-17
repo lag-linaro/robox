@@ -51,7 +51,9 @@ void QemudMessageProcessor::process_commands() {
 
     unsigned int body_size = 0;
     ::sscanf(header, "%04x", &body_size);
-    if (body_size != buffer_.size() - header_size) break;
+
+    size_t total_size = header_size + body_size;
+    if (buffer_.size() < total_size) break;
 
     std::string command;
     // Make sure we only copy as much bytes as we have to and not more

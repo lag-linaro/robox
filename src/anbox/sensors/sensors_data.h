@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Simon Fels <morphis@gravedo.de>
+ * Copyright (C) 2017 Lee Jones <lee.jones@linaro.org>
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 3, as published
@@ -15,34 +15,27 @@
  *
  */
 
-#ifndef ANBOX_CMDS_LAUNCH_H_
-#define ANBOX_CMDS_LAUNCH_H_
-
-#include <functional>
-#include <iostream>
-#include <memory>
-
-#include "anbox/android/intent.h"
-#include "anbox/dbus/stub/application_manager.h"
-#include "anbox/wm/stack.h"
-#include "anbox/cli.h"
+#ifndef ANBOX_SENSORS_DATA_H_
+#define ANBOX_SENSORS_DATA_H_
 
 namespace anbox {
-namespace cmds {
-class Launch : public cli::CommandWithFlagsAndAction {
+namespace sensors {
+class Data {
  public:
-  Launch();
+    Data(const int id, const int groupsize);
+    ~Data();
+
+    void get_data(float data[3]);
 
  private:
-  bool try_launch_activity(const std::shared_ptr<dbus::stub::ApplicationManager> &stub);
+    void pluck(const float samples[][3], unsigned int rows, float data[3]);
 
-  android::Intent intent_;
-  wm::Stack::Id stack_;
-  std::string container_id_;
-  bool use_system_dbus_ = false;
-  bool no_start_session_manager_ = false;
+    unsigned int select_ = 0;
+    unsigned int updown_ = 0;
+    const int id_;
+    const int groupsize_;
 };
-}  // namespace cmds
+}  // namespace sensors
 }  // namespace anbox
 
-#endif
+#endif // ANBOX_SENSORS_DATA_H_

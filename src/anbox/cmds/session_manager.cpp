@@ -28,6 +28,7 @@
 #include "anbox/bridge/platform_api_skeleton.h"
 #include "anbox/bridge/platform_message_processor.h"
 #include "anbox/graphics/gl_renderer_server.h"
+#include "anbox/sensors/sensors_manager.h"
 
 namespace {
 std::istream& operator>>(std::istream& in, anbox::graphics::GLRendererServer::Config::Driver& driver);
@@ -126,6 +127,9 @@ anbox::cmds::SessionManager::SessionManager()
   flag(cli::make_flag(cli::Name{"experimental"},
                       cli::Description{"Allows users to use experimental features"},
                       experimental_));
+  flag(cli::make_flag(cli::Name{"run-multiple"},
+                      cli::Description{"Allows more than one session-manager to run simultaneously, e.g. --run-multiple=<uniq_container_id>"},
+                      container_id_));
   flag(cli::make_flag(cli::Name{"use-system-dbus"},
                       cli::Description{"Use system instead of session DBus"},
                       use_system_dbus_));
@@ -133,8 +137,12 @@ anbox::cmds::SessionManager::SessionManager()
   action([this](const cli::Command::Context &) {
     auto trap = core::posix::trap_signals_for_process(
         {core::posix::Signal::sig_term, core::posix::Signal::sig_int});
-    trap->signal_raised().connect([trap](const core::posix::Signal &signal) {
+    trap->signal_raised().connect([this, trap](const core::posix::Signal &signal) {
       INFO("Signal %i received. Good night.", static_cast<int>(signal));
+
+      qemu_pipe_connector_.reset();
+      platform_->unset_window_manager();
+      platform_->unset_renderer();
       trap->stop();
     });
 
@@ -143,10 +151,21 @@ anbox::cmds::SessionManager::SessionManager()
       return EXIT_FAILURE;
     }
 
-    if (!fs::exists("/dev/binder") || !fs::exists("/dev/ashmem")) {
+    auto bindername = "/dev/binder";
+    if (!container_id_.empty()) {
+      auto id = container_id_;
+      id.erase(std::remove_if(id.begin(), id.end(), isalpha), id.end());
+      id = "/dev/binder" + id;
+      bindername = id.c_str();
+    }
+
+    if (!fs::exists(bindername) || !fs::exists("/dev/ashmem")) {
       ERROR("Failed to start as either binder or ashmem kernel drivers are not loaded");
       return EXIT_FAILURE;
     }
+
+    if (!container_id_.empty())
+      SystemConfiguration::instance().set_container_id(container_id_, false);
 
     utils::ensure_paths({
         SystemConfiguration::instance().socket_dir(),
@@ -172,29 +191,29 @@ anbox::cmds::SessionManager::SessionManager()
     if (single_window_)
       display_frame = window_size_;
 
-    auto platform = platform::create(utils::get_env_value("ANBOX_PLATFORM", "sdl"),
-                                     input_manager,
-                                     display_frame,
-                                     single_window_);
-    if (!platform)
+    platform_ = platform::create(utils::get_env_value("ANBOX_PLATFORM", "sdl"),
+				 input_manager,
+				 display_frame,
+				 single_window_);
+    if (!platform_)
       return EXIT_FAILURE;
 
     auto app_db = std::make_shared<application::Database>();
 
     std::shared_ptr<wm::Manager> window_manager;
     bool using_single_window = false;
-    if (platform->supports_multi_window() && !single_window_)
-      window_manager = std::make_shared<wm::MultiWindowManager>(platform, android_api_stub, app_db);
+    if (platform_->supports_multi_window() && !single_window_)
+      window_manager = std::make_shared<wm::MultiWindowManager>(platform_, android_api_stub, app_db);
     else {
-      window_manager = std::make_shared<wm::SingleWindowManager>(platform, display_frame, app_db);
+      window_manager = std::make_shared<wm::SingleWindowManager>(platform_, display_frame, app_db);
       using_single_window = true;
     }
 
     auto gl_server = std::make_shared<graphics::GLRendererServer>(
           graphics::GLRendererServer::Config{gles_driver_, single_window_}, window_manager);
 
-    platform->set_window_manager(window_manager);
-    platform->set_renderer(gl_server->renderer());
+    platform_->set_window_manager(window_manager);
+    platform_->set_renderer(gl_server->renderer());
     window_manager->setup();
 
     auto app_manager = std::static_pointer_cast<application::Manager>(android_api_stub);
@@ -206,16 +225,19 @@ anbox::cmds::SessionManager::SessionManager()
             android_api_stub, wm::Stack::Id::Freeform);
     }
 
-    auto audio_server = std::make_shared<audio::Server>(rt, platform);
+    auto audio_server = std::make_shared<audio::Server>(rt, platform_);
 
     const auto socket_path = SystemConfiguration::instance().socket_dir();
 
+    sensors_ = sensors::SensorsManager::create();
+
     // The qemu pipe is used as a very fast communication channel between guest
     // and host for things like the GLES emulation/translation, the RIL or ADB.
-    auto qemu_pipe_connector =
+    qemu_pipe_connector_ =
         std::make_shared<network::PublishedSocketConnector>(
             utils::string_format("%s/qemu_pipe", socket_path), rt,
-            std::make_shared<qemu::PipeConnectionCreator>(gl_server->renderer(), rt));
+            std::make_shared<qemu::PipeConnectionCreator>(
+                gl_server->renderer(), rt, sensors_));
 
     boost::asio::deadline_timer appmgr_start_timer(rt->service());
 
@@ -233,7 +255,7 @@ anbox::cmds::SessionManager::SessionManager()
               android_api_stub->set_rpc_channel(rpc_channel);
 
               auto server = std::make_shared<bridge::PlatformApiSkeleton>(
-                  pending_calls, platform, window_manager, app_db);
+                  pending_calls, platform_, window_manager, app_db);
               server->register_boot_finished_handler([&]() {
                 DEBUG("Android successfully booted");
                 android_api_stub->ready().set(true);
@@ -251,7 +273,7 @@ anbox::cmds::SessionManager::SessionManager()
     container::Configuration container_configuration;
     if (!standalone_) {
       container_configuration.bind_mounts = {
-        {qemu_pipe_connector->socket_file(), "/dev/qemu_pipe"},
+        {qemu_pipe_connector_->socket_file(), "/dev/qemu_pipe"},
         {bridge_connector->socket_file(), "/dev/anbox_bridge"},
         {audio_server->socket_file(), "/dev/anbox_audio"},
         {SystemConfiguration::instance().input_device_dir(), "/dev/input"},

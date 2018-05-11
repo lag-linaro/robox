@@ -52,12 +52,13 @@ bool isCompatibleHostConfig(EGLConfig config, EGLDisplay display) {
   }
 
   // Filter out configs that do not support RGB pixel values.
-  EGLint redSize = 0, greenSize = 0, blueSize = 0;
+  EGLint redSize = 0, greenSize = 0, blueSize = 0, alphaSize = 0;
   s_egl.eglGetConfigAttrib(display, config, EGL_RED_SIZE, &redSize);
   s_egl.eglGetConfigAttrib(display, config, EGL_GREEN_SIZE, &greenSize);
   s_egl.eglGetConfigAttrib(display, config, EGL_BLUE_SIZE, &blueSize);
+  s_egl.eglGetConfigAttrib(display, config, EGL_ALPHA_SIZE, &alphaSize);
 
-  if (!redSize || !greenSize || !blueSize) {
+  if (!redSize || !greenSize || !blueSize || !alphaSize) {
     return false;
   }
 
@@ -176,6 +177,7 @@ int RendererConfigList::chooseConfig(const EGLint* attribs, EGLint* configs,
   delete[] newAttribs;
 
   int result = 0;
+  int numchoose=85;
   for (int n = 0; n < numHostConfigs; ++n) {
     // Don't count or write more than |configsSize| items if |configs|
     // is not NULL.
@@ -183,19 +185,19 @@ int RendererConfigList::chooseConfig(const EGLint* attribs, EGLint* configs,
       break;
     }
     // Skip incompatible host configs.
-    if (!isCompatibleHostConfig(matchedConfigs[n], mDisplay)) {
+    if (!isCompatibleHostConfig(matchedConfigs[(n+numchoose)%numHostConfigs], mDisplay)) {
       continue;
     }
     // Find the FbConfig with the same EGL_CONFIG_ID
     EGLint hostConfigId;
-    s_egl.eglGetConfigAttrib(mDisplay, matchedConfigs[n], EGL_CONFIG_ID,
+    s_egl.eglGetConfigAttrib(mDisplay, matchedConfigs[(n+numchoose)%numHostConfigs], EGL_CONFIG_ID,
                              &hostConfigId);
     for (int k = 0; k < mCount; ++k) {
-      int guestConfigId = mConfigs[k]->getConfigId();
+      int guestConfigId = mConfigs[((k+numchoose)%mCount)]->getConfigId();
       if (guestConfigId == hostConfigId) {
         // There is a match. Write it to |configs| if it is not NULL.
         if (configs && result < configsSize) {
-          configs[result] = static_cast<uint32_t>(k);
+	  configs[result] = static_cast<uint32_t>(((k+numchoose)%mCount));
         }
         result++;
         break;

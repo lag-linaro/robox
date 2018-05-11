@@ -25,6 +25,7 @@
 #include "anbox/cmds/container_manager.h"
 #include "anbox/cmds/session_manager.h"
 #include "anbox/cmds/system_info.h"
+#include "anbox/cmds/generate_ip_config.h"
 #include "anbox/cmds/launch.h"
 #include "anbox/cmds/version.h"
 
@@ -40,6 +41,7 @@ Daemon::Daemon()
      .command(std::make_shared<cmds::SessionManager>())
      .command(std::make_shared<cmds::Launch>())
      .command(std::make_shared<cmds::ContainerManager>())
+     .command(std::make_shared<cmds::GenerateIpConfig>())
      .command(std::make_shared<cmds::SystemInfo>());
 
 

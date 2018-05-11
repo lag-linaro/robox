@@ -33,9 +33,18 @@ namespace anbox {
 namespace bridge {
 class AndroidApiStub;
 } // namespace bridge
+namespace platform {
+class BasePlatform;
+}  // namespace platform
 namespace container {
 class Client;
 }  // namespace container
+namespace sensors {
+class SensorsManager;
+} // namespace sensors
+namespace network {
+class PublishedSocketConnector;
+}  // namespace network
 namespace cmds {
 class SessionManager : public cli::CommandWithFlagsAndAction {
  public:
@@ -45,12 +54,17 @@ class SessionManager : public cli::CommandWithFlagsAndAction {
   void launch_appmgr_if_needed(const std::shared_ptr<bridge::AndroidApiStub> &android_api_stub);
 
   std::shared_ptr<container::Client> container_;
+  std::shared_ptr<platform::BasePlatform> platform_;
+  std::shared_ptr<sensors::SensorsManager> sensors_;
+  std::shared_ptr<network::PublishedSocketConnector> qemu_pipe_connector_;
+
   std::string desktop_file_hint_;
   graphics::GLRendererServer::Config::Driver gles_driver_;
   bool single_window_ = false;
   graphics::Rect window_size_;
   bool standalone_ = false;
   bool experimental_ = false;
+  std::string container_id_;
   bool use_system_dbus_ = false;
 };
 }  // namespace cmds

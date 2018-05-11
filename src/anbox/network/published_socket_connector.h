@@ -45,6 +45,7 @@ class PublishedSocketConnector : public DoNotCopyOrMove, public Connector {
       boost::system::error_code const& err);
 
   const std::string socket_file_;
+  std::string socket_dir_;
   std::shared_ptr<Runtime> runtime_;
   std::shared_ptr<ConnectionCreator<boost::asio::local::stream_protocol>>
       connection_creator_;

@@ -49,6 +49,8 @@ bool is_env_set(const std::string &name);
 
 void ensure_paths(const std::vector<std::string> &paths);
 
+void remove_paths(const std::vector<std::string> &paths);
+
 std::string prefix_dir_from_env(const std::string &path,
                                 const std::string &env_var);
 

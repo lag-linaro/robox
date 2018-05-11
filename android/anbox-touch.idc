@@ -1,5 +1,4 @@
-#
-# Copyright (C) 2013 The Android Open-Source Project
+# Copyright 2017 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,14 +11,23 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+#
+# Input Device Calibration File for the Anbox.
 #
 
-# Copy the 64-bit primary, 32-bit secondary zygote startup script
-PRODUCT_COPY_FILES += system/core/rootdir/init.zygote64_32.rc:root/init.zygote64_32.rc
+device.internal = 1
 
-# Set the zygote property to select the 64-bit primary, 32-bit secondary script
-# This line must be parsed before the one in core_minimal.mk
-PRODUCT_DEFAULT_PROPERTY_OVERRIDES += ro.zygote=zygote64_32
+touch.deviceType = touchScreen
+touch.displayId = 0
+touch.orientationAware = 1
 
-TARGET_SUPPORTS_32_BIT_APPS := true
-TARGET_SUPPORTS_64_BIT_APPS := true
+touch.size.calibration = diameter
+touch.size.scale = 60.216953
+touch.size.bias = -60.108793
+touch.size.isSummed = 0
+
+touch.pressure.calibration = amplitude
+touch.pressure.scale = 0.0125
+
+touch.orientation.calibration = none

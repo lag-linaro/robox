@@ -30,11 +30,14 @@ class SystemConfiguration {
 
   virtual ~SystemConfiguration() = default;
 
+  void set_container_id(const std::string &id, bool nothrow);
   void set_data_path(const std::string &path);
 
   boost::filesystem::path data_dir() const;
+  std::string container_name() const;
   std::string rootfs_dir() const;
   std::string log_dir() const;
+  std::string instance_dir() const;
   std::string socket_dir() const;
   std::string container_config_dir() const;
   std::string container_socket_path() const;
@@ -47,6 +50,7 @@ class SystemConfiguration {
 
   boost::filesystem::path data_path;
   boost::filesystem::path resource_path;
+  std::string container_id;
 };
 }  // namespace anbox
 

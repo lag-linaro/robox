@@ -31,6 +31,7 @@
 #include <sys/types.h>
 
 #include "anbox/utils.h"
+#include "anbox/logger.h"
 
 namespace fs = boost::filesystem;
 
@@ -162,6 +163,14 @@ void ensure_paths(const std::vector<std::string> &paths) {
   for (const auto &path : paths) {
     if (!fs::is_directory(fs::path(path)))
       fs::create_directories(fs::path(path));
+  }
+}
+
+void remove_paths(const std::vector<std::string> &paths) {
+  for (const auto &path : paths) {
+    if (fs::is_directory(fs::path(path)))
+      if (fs::is_empty(fs::path(path)))
+        fs::remove(fs::path(path));
   }
 }
 

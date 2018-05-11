@@ -182,7 +182,6 @@ set(SOURCES
     anbox/qemu/qemud_message_processor.cpp
     anbox/qemu/boot_properties_message_processor.cpp
     anbox/qemu/hwcontrol_message_processor.cpp
-    anbox/qemu/sensors_message_processor.cpp
     anbox/qemu/camera_message_processor.cpp
     anbox/qemu/fingerprint_message_processor.cpp
     anbox/qemu/gsm_message_processor.cpp
@@ -209,10 +208,16 @@ set(SOURCES
     anbox/cmds/container_manager.cpp
     anbox/cmds/launch.cpp
     anbox/cmds/system_info.cpp
+    anbox/cmds/generate_ip_config.cpp
 
     anbox/utils/environment_file.cpp
 
     anbox/ui/splash_screen.cpp
+
+    anbox/sensors/sensors_message_processor.cpp
+    anbox/sensors/sensors_manager.cpp
+    anbox/sensors/sensors_sensor.cpp
+    anbox/sensors/sensors_data.cpp
 
     anbox/do_not_copy_or_move.h
     anbox/optional.h

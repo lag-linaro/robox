@@ -66,8 +66,10 @@ bool MessageProcessor::process_data(const std::vector<std::uint8_t> &data) {
 
       if (result->has_id()) {
         pending_calls_->populate_message_for_result(*result,
-                                                    [&](google::protobuf::MessageLite *result_message) {
-                                                      result_message->ParseFromString(result->response());
+          [&](google::protobuf::MessageLite *result_message) {
+             std::string response = result->response();
+             if (response != "")
+               result_message->ParseFromString(response);
                                                     });
         pending_calls_->complete_response(*result);
       }

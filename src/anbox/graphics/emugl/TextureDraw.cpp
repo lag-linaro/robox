@@ -27,6 +27,8 @@
 #define M_PI 3.14159265358979323846264338327
 #endif
 
+extern int get_rotation_status();
+
 namespace {
 
 // Helper function to create a new shader.
@@ -84,14 +86,35 @@ struct Vertex {
 };
 
 const Vertex kVertices[] = {
-    {{+1, -1, +0}, {+1, +1}},
-    {{+1, +1, +0}, {+1, +0}},
-    {{-1, +1, +0}, {+0, +0}},
-    {{-1, -1, +0}, {+0, +1}},
+    {{ +1, -1, +0 }, { +1, +1 }},
+    {{ +1, +1, +0 }, { +1, +0 }},
+    {{ -1, +1, +0 }, { +0, +0 }},
+    {{ -1, -1, +0 }, { +0, +1 }},
+    {{ +1, -1, +0 }, { +1, +0 }},
+    {{ +1, +1, +0 }, { +0, +0 }},
+    {{ -1, +1, +0 }, { +0, +1 }},
+    {{ -1, -1, +0 }, { +1, +1 }},
+    {{ +1, -1, +0 }, { +0, +0 }},
+    {{ +1, +1, +0 }, { +0, +1 }},
+    {{ -1, +1, +0 }, { +1, +1 }},
+    {{ -1, -1, +0 }, { +1, +0 }},
+    {{ +1, -1, +0 }, { +0, +1 }},
+    {{ +1, +1, +0 }, { +1, +1 }},
+    {{ -1, +1, +0 }, { +1, +0 }},
+    {{ -1, -1, +0 }, { +0, +0 }},
 };
 
-const GLubyte kIndices[] = {0, 1, 2, 2, 3, 0};
+// Vertex indices for predefined rotation angles.
+// Vertex indices for predefined rotation angles.
+const GLubyte kIndices[] = {
+    0, 1, 2, 2, 3, 0,      // 0
+    4, 5, 6, 6, 7, 4,      // 90
+    8, 9, 10, 10, 11, 8,   // 180
+    12, 13, 14, 14, 15, 12 // 270
+};
+
 const GLint kIndicesLen = sizeof(kIndices) / sizeof(kIndices[0]);
+const GLint kIndicesPerDraw = 6;
 
 }  // namespace
 
@@ -205,7 +228,12 @@ bool TextureDraw::draw(GLuint texture) {
     ERROR("Could not glBindBuffer(GL_ELEMENT_ARRAY_BUFFER) error 0x%x", err);
   }
 
-  s_gles2.glDrawElements(GL_TRIANGLES, kIndicesLen, GL_UNSIGNED_BYTE, 0);
+  const int intRotation = (int) get_rotation_status ();
+  assert(intRotation >= 0 && intRotation <= 3);
+  const intptr_t indexShift = intRotation * kIndicesPerDraw;
+
+  s_gles2.glDrawElements(GL_TRIANGLES, kIndicesPerDraw, GL_UNSIGNED_BYTE, (const GLvoid*)indexShift);
+
   err = s_gles2.glGetError();
   if (err != GL_NO_ERROR) {
     ERROR("Could not glDrawElements() error 0x%x", err);

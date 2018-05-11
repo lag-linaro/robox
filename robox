@@ -1,0 +1,629 @@
+#!/bin/bash
+
+ANBOX=anbox
+SESSIONMANAGER="$ANBOX session-manager"
+LAUNCHER="$ANBOX launch"
+BINDMOUNTDIR=$HOME/anbox-data
+SOCKETDIR=$XDG_RUNTIME_DIR/anbox
+ROBOXLOGDIR=/tmp/robox
+ROBOXFAILLOG=$ROBOXLOGDIR/robox-faillog
+ROBOXALLLOG="" # Populated dynamically
+SOCKETS="anbox_bridge qemu_pipe anbox_audio"
+INPUTS="event0  event1"
+ANBOX_LOG_LEVEL="debug"
+EGL_LOG_LEVEL="debug"
+DOCKERNAME=""
+SESSIONMANAGERPID=""
+FRAMEBUFFERPID=""
+START=""
+STOP=""
+LAUNCHER=""
+VNC="true"
+instance=0
+instance=""
+EXECUTIONS=0
+FAILED=255
+SUPPORTEDINSTANCES=253 # Restricted by Class C networking (!1 && !255)
+                       # Remember Robox IP addresses start at <MASK>.2
+
+trap die INT
+
+function warning() {
+    echo -e "[$(date +%T)] \e[01;31m$instancenum: $@ \e[0m" >> $ROBOXALLLOG
+    echo -e "\e[01;31m$instancenum: $@ \e[0m"
+}
+
+function out() {
+    echo -e "[$(date +%T)] $instancenum: $@" >> $ROBOXALLLOG
+    if [[ "$QUIET" == "true" ]]; then return; fi
+    echo -e "$instancenum: $@"
+}
+
+function debug() {
+    echo -e "[$(date +%T)] $instancenum: $@" >> $ROBOXALLLOG
+    if [[ "$DEBUG" != "true" ]]; then return; fi
+    echo -e "$instancenum: $@"
+}
+
+function die() {
+    opts=""
+
+    if [[ "$DEBUG" == "true" ]]; then
+	opts="$opts -d"
+    fi
+
+    if [[ "$QUIET" == "true" ]]; then
+	opts="$opts -q"
+    fi
+
+    if [[ "$VNC" == "true" ]]; then
+	opts="$opts -v"
+    fi
+
+    echo $instancenum >> $ROBOXFAILLOG
+
+    EXECUTIONS=$(($EXECUTIONS+1))
+
+    out "Stopping"
+    $0 $opts stop $instancenum -f -lf $ROBOXALLLOG -x $EXECUTIONS
+
+    return $instancenum
+}
+
+function start_binder_ashmem()
+{
+    BINDERNODE=/dev/binder$instancenum
+    ASHMEMNODE=/dev/ashmem
+
+    if [[ ! -x $(which dkms) ]]; then
+	out "DKMS isn't installed.  Please install it then restart '$(basename $0)'"
+	return $FAILED
+    fi
+
+    if [[ ! -c $BINDERNODE ]]; then
+
+	if [[ -c /dev/binder ]]; then
+	    out "Binder module loaded without sufficient device(s) support"
+	    return $FAILED
+	fi
+
+	# Is the Binder module installed?  If not, try to install it
+	grep -r binder_linux /lib/modules/`uname -r` > /dev/null
+	if [[ $? -ne 0 ]]; then
+	    if [[ ! -d /usr/src/linux-headers-`uname -r` ]]; then
+		warning "Kernel headers not installed -- can not build Binder module"
+		return $FAILED
+	    fi
+
+	    out "Installing Binder module via DKMS"
+	    sudo dkms install $PWD/kernel/binder > /dev/null
+
+	    if [[ $? -ne 0 ]]; then
+		warning "Failed to install Binder module, exiting"
+		return $FAILED
+	    fi
+	fi
+
+	# Create a Binder devnode for each instance
+	# +1 becuase Binder's numbering starts at 0 - Robox starts at 1
+	sudo modprobe binder_linux num_devices=$(($SUPPORTEDINSTANCES+1))
+	if [[ $? -ne 0 ]]; then
+	    warning "Failed to load Binder module, exiting"
+	    return $FAILED
+	fi
+    else
+	debug "$BINDERNODE appears to be present"
+    fi
+
+    if [[ ! -c $ASHMEMNODE ]]; then
+
+	# Is the Ashmem module installed?  If not, try to install it
+	grep -r ashmem_linux /lib/modules/`uname -r` > /dev/null
+	if [[ $? -ne 0 ]]; then
+	    if [[ ! -d /usr/src/linux-headers-`uname -r` ]]; then
+		warning "Kernel headers not installed -- can not build Ashmem module"
+		return $FAILED
+	    fi
+
+	    out "Installing Ashmem module via DKMS"
+	    sudo dkms install $PWD/kernel/ashmem > /dev/null
+
+	    if [[ $? -ne 0 ]]; then
+		warning "Failed to install Ashmem module, exiting"
+		return $FAILED
+	    fi
+	fi
+
+	# Create a Ashmem devnode for each instance
+	sudo modprobe ashmem_linux
+	if [[ $? -ne 0 ]]; then
+	    warning "Failed to load Ashmem module, exiting"
+	    return $FAILED
+	fi
+    else
+	debug "$ASHMEMNODE appears to be present"
+    fi
+
+    debug "Ensuring $BINDERNODE and $ASHMEMNODE are useable"
+    sudo chmod 777 $BINDERNODE
+    sudo chmod 777 $ASHMEMNODE
+}
+
+function start_framebuffer()
+{
+    if [[ "$VNC" != "true" ]]; then
+	# This function is only relevant for VNC
+	return
+    fi
+
+    display=":$instancenum"
+    out "STARTING Frame Buffer"
+    cmd="Xvfb $display -ac -screen 0 1024x768x24"
+
+    debug $cmd
+    $cmd &>> $ROBOXALLLOG $FB &
+    FRAMEBUFFERPID=$!
+    disown
+
+    if [[ ! -d /proc/$FRAMEBUFFERPID ]]; then
+	warning "FAILED to start the Frame Buffer"
+	return $FAILED
+    fi
+
+    export DISPLAY=$display
+}
+
+function start_session_manager()
+{
+    out "STARTING Session Manager"
+
+    if [[ "$VNC" != "true" ]]; then
+	# Use the default "freeform"
+	windowing=""
+    else
+	windowing="--single-window"
+    fi
+
+    cmd="$SESSIONMANAGER --run-multiple=$instance --standalone --experimental $windowing --gles-driver=translator"
+
+    debug $cmd
+
+#   warning "Not starting the Session Manager - start it and press return"
+#   read
+#   return
+
+    $cmd &>> $ROBOXALLLOG $SM &
+    SESSIONMANAGERPID=$!
+    disown
+
+    TIMEOUT=0
+    while true; do
+	ps -h $SESSIONMANAGERPID > /dev/null
+	if [[ $? -gt 0 ]]; then
+	    if [[ $TIMEOUT -gt 2 ]]; then
+		warning "FAILED to start the Session Manager"
+		return $FAILED
+	    else
+		TIMEOUT=$(($TIMEOUT+1))
+	    fi
+	    sleep 2
+	else
+	    break
+	fi
+    done
+}
+
+function configure_networking()
+{
+    unique_ip=$instancenum
+    unique_ip=$(($unique_ip + 1))
+    final_ip=172.17.0.$unique_ip
+
+    out "CREATING network configuration (using $final_ip)"
+
+    mkdir -p $BINDMOUNTDIR/$instance/data/misc/ethernet
+
+    $ANBOX generate-ip-config --ip=$final_ip --gateway=172.17.0.1
+    if [[ $? -ne 0 ]]; then
+	warning "FAILED to configure Networking"
+	return $FAILED
+    fi
+
+    cp ipconfig.txt $BINDMOUNTDIR/$instance/data/misc/ethernet
+}
+
+function start_docker_container()
+{
+    out "STARTING Docker container"
+    DOCKERNAME=$instance
+
+    TIMEOUT=0
+    while true; do
+	if [[ -S $SOCKETDIR/$instance/sockets/qemu_pipe ]] &&
+	       [[ -S $SOCKETDIR/$instance/sockets/anbox_audio ]] &&
+	       [[ -S $SOCKETDIR/$instance/sockets/anbox_bridge ]] &&
+	       [[ -S $SOCKETDIR/$instance/input/event0 ]] &&
+	       [[ -S $SOCKETDIR/$instance/input/event1 ]]; then
+	    break
+	else
+	    if [[ $TIMEOUT -gt 15 ]]; then
+		warning "FAILED: Timed out waiting for sockets"
+		return $FAILED
+	    else
+		debug "Not all sockets are present - ZZzzz!"
+		sleep 2
+		TIMEOUT=$(($TIMEOUT+1))
+	    fi
+	fi
+    done
+
+    cmd="docker run -d -it \
+	   --cap-add=SYS_ADMIN \
+	   --cap-add=NET_ADMIN \
+	     --cap-add=SYS_MODULE \
+	     --cap-add=SYS_NICE \
+	     --cap-add=SYS_TIME \
+	     --cap-add=SYS_TTY_CONFIG \
+	     --cap-add=NET_BROADCAST \
+	     --cap-add=IPC_LOCK \
+	     --cap-add=SYS_RESOURCE \
+            --security-opt="apparmor=unconfined" \
+            --security-opt="seccomp=robox.json" \
+	   --name $DOCKERNAME \
+	   -e PATH=/system/bin:/system/xbin \
+	   --device=$BINDERNODE:/dev/binder:rwm \
+	   --device=$ASHMEMNODE:/dev/ashmem:rwm \
+           --device=/dev/fuse:/dev/fuse:rwm \
+	   --volume=$SOCKETDIR/$instance/sockets/qemu_pipe:/dev/qemu_pipe \
+	   --volume=$SOCKETDIR/$instance/sockets/anbox_audio:/dev/anbox_audio:rw \
+	   --volume=$SOCKETDIR/$instance/sockets/anbox_bridge:/dev/anbox_bridge:rw \
+	   --volume=$SOCKETDIR/$instance/input/event0:/dev/input/event0:rw \
+	   --volume=$SOCKETDIR/$instance/input/event1:/dev/input/event1:rw \
+	   --volume=$BINDMOUNTDIR/$instance/cache:/cache:rw \
+	   --volume=$BINDMOUNTDIR/$instance/data:/data:rw \
+	   android /anbox-init.sh"
+
+    debug $cmd
+    $cmd &>> $ROBOXALLLOG $DK
+    if [[ $? -ne 0 ]]; then
+	warning "FAILED to start the Docker Container"
+	return $FAILED
+    fi
+}
+
+function start_launcher()
+{
+    cmd="$LAUNCHER --package=org.anbox.appmgr \
+--component=org.anbox.appmgr.AppViewActivity \
+--run-multiple=$instance"
+
+    if [[ "$LAUNCHER" != "true" ]]; then
+	return
+    fi
+
+    out "STARTING Launcher"
+    debug $cmd
+    $cmd
+
+    if [[ $? -ne 0 ]]; then
+	warning "FAILED to start the Launcher"
+	return $FAILED
+    fi
+}
+
+function start_vnc_server()
+{
+    if [[ "$VNC" != "true" ]]; then
+	# This function is only relevant for VNC
+	return
+    fi
+
+    PASSWORD=robox$RANDOM
+
+    # WARNING: The passwd method should only be used for testing/demos
+
+    out "STARTING VNC Server"
+    cmd="x11vnc -display $DISPLAY -N -forever -shared -reopen -passwd $PASSWORD -desktop $instance -bg"
+
+    debug $cmd
+
+    # VNC is too noisy to have in the debug log
+    $cmd -q &> /dev/null
+
+    if [[ $? -ne 0 ]]; then
+	warning "FAILED to start the VNC Server"
+	return $FAILED
+    fi
+
+    out "PASSWORD=\e[1m\e[34m$PASSWORD\e[0m"
+}
+
+function start()
+{
+    ps aux | grep -v grep | grep "$instance \|$instance$" > /dev/null
+    if [[ $? -eq 0 ]]; then
+	OUT=`ps aux | grep -v grep | grep "$instance \|$instance$"`
+	out $OUT
+	warning "$instance is already running -- please stop it before continuing"
+	return $FAILED
+    fi
+
+    docker network inspect bridge | grep \"$instance\" > /dev/null
+    if [[ $? -eq 0 ]]; then
+	docker network disconnect -f bridge $instance
+    fi
+
+    # Export current log level values
+    export ANBOX_LOG_LEVEL=$ANBOX_LOG_LEVEL
+    export EGL_LOG_LEVEL=$EGL_LOG_LEVEL
+
+    # Raise system resource limits - required for many containers
+    sudo sysctl -w fs.inotify.max_user_instances=8192 > /dev/null
+    sudo sysctl -w fs.file-max=1000000 > /dev/null
+    sudo sysctl -w kernel.shmmni=24576 > /dev/null
+    sudo sysctl -w kernel.pid_max=200000 > /dev/null
+
+    ulimit -n 4096
+    ulimit -s unlimited
+
+    # Enable core dumps
+    ulimit -c unlimited
+
+    start_binder_ashmem
+    if [[ $? -eq $FAILED ]]; then
+	die
+	return $FAILED
+    fi
+
+    start_framebuffer
+    if [[ $? -eq $FAILED ]]; then
+	die
+	return $FAILED
+    fi
+
+    start_session_manager
+    if [[ $? -eq $FAILED ]]; then
+	die
+	return $FAILED
+    fi
+
+    configure_networking
+    if [[ $? -eq $FAILED ]]; then
+	die
+	return $FAILED
+    fi
+
+    debug "Ensuring all sockets are useable"
+    sudo chmod -R 777 $XDG_RUNTIME_DIR/anbox
+
+    start_docker_container
+    if [[ $? -eq $FAILED ]]; then
+	die
+	return $FAILED
+    fi
+
+    start_launcher
+    if [[ $? -eq $FAILED ]]; then
+	die
+	return $FAILED
+    fi
+
+    start_vnc_server
+    if [[ $? -eq $FAILED ]]; then
+	die
+	return $FAILED
+    fi
+}
+
+function stop()
+{
+    if [[ "$FORCE" == "" ]]; then
+	ps aux | grep -v grep | grep "$instance \|$instance$" > /dev/null
+	if [[ $? -ne 0 ]]; then
+	    out "Nothing to do"
+
+	    # Remove possible remnent files anyway, just in case
+	    sudo rm -rf $XDG_RUNTIME_DIR/anbox/$instance > /dev/null
+	    sudo rm -rf $BINDMOUNTDIR/$instance > /dev/null
+
+	    exit 0
+	fi
+    fi
+
+    # Stop VNC Server
+    PID=$(ps aux | grep x11vnc | grep "display.*:$instancenum " | column -t | cut -d$' ' -f3)
+    if [[ "$PID" != "" ]]; then
+	out "STOPPING VNC Server ($PID)"
+	sudo kill -INT $PID
+    else
+	out "NOT stopping VNC Server, it's not running"
+    fi
+
+    # Stop Docker
+    docker ps -a | grep $instance$ > /dev/null
+    if [[ $? -eq 0 ]]; then
+	out "STOPPING Docker"
+	docker stop $instance &>> $ROBOXALLLOG &
+	DOCKERSTOPPID=$!
+	disown
+
+	while true; do
+	    if [[ -d /proc/$DOCKERSTOPPID ]]; then
+		if [[ $TIMEOUT -gt 48 ]]; then
+		    out "Docker Stop locked up - trying again"
+		    kill $DOCKERSTOPPID &>> $ROBOXALLLOG
+		    die
+		    return $FAILED
+		else
+		    TIMEOUT=$(($TIMEOUT+1))
+		fi
+		sleep 5
+	    else
+		break
+	    fi
+	done
+
+	debug "REMOVING Docker"
+	docker rm -f $instance &>> $ROBOXALLLOG
+	if [[ $? -ne 0 ]]; then
+	    warning "FAILED to remove Docker container"
+	fi
+    else
+	out "NOT stopping Docker, it's not running"
+    fi
+
+    # Stop Session Manager
+    PID=$(ps aux | grep session-manager | grep "$instance \|$instance$" | column -t | cut -d$' ' -f3)
+    if [[ "$PID" != "" ]]; then
+	out "STOPPING Session Manager ($PID)"
+	if [[ "$PERF" == "true" ]]; then
+	    kill -INT $PID
+	else
+	    kill -9 $PID
+	fi
+    else
+	out "NOT stopping Session Manager, it's not running"
+    fi
+
+    sudo rm -rf $XDG_RUNTIME_DIR/anbox/$instance
+    sudo rm -rf $BINDMOUNTDIR/$instance
+
+    # Stop Frame Buffer
+    PID=$(ps aux | grep Xvfb | grep "Xvfb[[:space:]]*:$instancenum " | column -t | cut -d$' ' -f3)
+    if [[ "$PID" != "" ]]; then
+	out "STOPPING Frame Buffer ($PID)"
+	sudo kill -9 $PID
+    else
+	out "NOT stopping Frame Buffer, it's not running"
+    fi
+
+    rm -f /tmp/.X$instancenum-lock
+
+    # Remove unattached shared memory (VNC does not free it properly)
+    IDS=`ipcs -m | grep '^0x' | grep $USER | awk '{print $2, $6}' | grep ' 0$' | awk '{print $1}'`
+    for id in $IDS; do
+	ipcrm shm $id &> /dev/null
+    done
+}
+
+parse_args()
+{
+    if [[ $# -lt 2 ]] || [[ $# -gt 11 ]]; then
+	warning "Too many arguments"
+	return $FAILED
+    fi
+
+    while [[ $# -gt 0 ]]; do
+	case $1 in
+	    start|--start)
+		START=true
+		instancenum=$2
+		shift
+		;;
+	    stop|--start)
+		STOP=true
+		instancenum=$2
+		shift
+		;;
+	    -v|--vnc) # Default
+		VNC=true
+		;;
+	    -nv|--novnc)
+		VNC=""
+		;;
+	    -l|--launcher)
+		LAUNCHER=true
+		;;
+	    -nl|--nolauncher) # Default
+		LAUNCHER=""
+		;;
+	    -lf|--logfile)
+		ROBOXALLLOG=$2
+		shift
+		;;
+	    -d|--debug)
+		ANBOX_LOG_LEVEL=debug
+		EGL_LOG_LEVEL=debug
+		DEBUG=true
+		;;
+	    -q|--quiet)
+		QUIET=true
+		;;
+	    -t|--trace)
+		ANBOX_LOG_LEVEL=trace
+		;;
+	    -f|--force) # To be used with 'stop'
+		FORCE=true
+		;;
+	    -x|--executions) # Internal flag - do not use manually
+		EXECUTIONS=$2
+		shift
+		;;
+	    *)
+		warning "Unrecognised parameter $1"
+		return $FAILED
+		;;
+	esac
+	shift
+    done
+}
+
+main ()
+{
+    parse_args $@
+    if [[ $? -ne 0 ]]; then
+	return $FAILED
+    fi
+
+    if [[ "$ROBOXALLLOG" == "" ]]; then
+	ROBOXALLLOG=$ROBOXLOGDIR/$instancenum/$(date +%F-%H%p)
+	mkdir -p $ROBOXLOGDIR
+	mkdir -p $ROBOXLOGDIR/$instancenum
+    fi
+
+    if [[ $EXECUTIONS -ge 2 ]]; then
+	# BUG: https://github.com/moby/moby/issues/22312
+	warning "Too many stop loops (try restarting dockerd) giving up!"
+	return $FAILED
+    fi	
+
+    if [[ $instancenum -gt $SUPPORTEDINSTANCES ]] || [[ $instancenum -lt 1 ]]; then
+	warning "Instance should be between 1 and $SUPPORTEDINSTANCES ($instancenum)"
+	return $FAILED
+    fi
+    instance=instance$instancenum
+
+    if [[ "$QUIET" == "true" ]] && [[ "$DEBUG" == "true" ]]; then
+	warning "Debug and Quiet modes are mutually exclusive"
+	return $FAILED
+    fi
+
+    # Ensure we have current sudo privileges
+    if [[ $EUID -ne 0 ]]; then
+	sudo ls > /dev/null
+    fi
+
+    if [[ "$START" == "true" ]]; then
+	if [[ "$VNC" != "true" ]]; then
+	    if [[ "$DISPLAY" == "" ]]; then
+		warning "Display is not set and VNC not selected - you have 3 options:"
+		warning " 1. Run from a terminal on a desktop environment"
+		warning " 2. Use the [-v|--vnc] flag to start a VNC session to connect to"
+		warning " 3. Manually set the DISPLAY environment variable to the correct value"
+		warning "Exiting ..."
+		return $FAILED
+	    fi
+	fi
+
+	out "Attempting to start instance $instance"
+	start
+    elif  [[ "$STOP" == "true" ]]; then
+	out "Attempting to stop instance $instance"
+	stop
+    fi
+
+    return $?
+}
+
+main $@
+exit $?

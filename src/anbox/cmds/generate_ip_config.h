@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Simon Fels <morphis@gravedo.de>
+ * Copyright (C) 2017 Lee Jones <lee.jones@linaro.org>
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 3, as published
@@ -15,26 +15,26 @@
  *
  */
 
-#ifndef ANBOX_QEMU_SENSORS_MESSAGE_PROCESSOR_H_
-#define ANBOX_QEMU_SENSORS_MESSAGE_PROCESSOR_H_
+#ifndef ANBOX_CMDS_GEN_IP_CONFIG_H_
+#define ANBOX_CMDS_GEN_IP_CONFIG_H_
 
-#include "anbox/qemu/qemud_message_processor.h"
+#include "anbox/cli.h"
+
+#include <string>
 
 namespace anbox {
-namespace qemu {
-class SensorsMessageProcessor : public QemudMessageProcessor {
+namespace cmds {
+class GenerateIpConfig : public cli::CommandWithFlagsAndAction {
  public:
-  SensorsMessageProcessor(
-      const std::shared_ptr<network::SocketMessenger> &messenger);
-  ~SensorsMessageProcessor();
-
- protected:
-  void handle_command(const std::string &command) override;
+  GenerateIpConfig();
 
  private:
-  void list_sensors();
+  std::string ip_;
+  std::string gateway_;
+  std::string dns_;
+  uint32_t cidr_;
 };
-}  // namespace graphics
+}  // namespace cmds
 }  // namespace anbox
 
 #endif

@@ -24,16 +24,35 @@
 #include <chrono>
 #include <string>
 
+#include "anbox/system_configuration.h"
+
 namespace anbox {
 namespace dbus {
 namespace interface {
 struct Service {
-  static inline std::string name() { return "org.anbox"; }
   static inline std::string path() { return "/"; }
+  static inline std::string name() {
+    static std::string id = SystemConfiguration::instance().container_name();
+    std::string str;
+    if (!id.empty())
+      str = "org.anbox." + id;
+    else
+      str = "org.anbox";
+    return str;
+  }
 };
 struct ApplicationManager {
-  static inline std::string name() { return "org.anbox.ApplicationManager"; }
-  struct Methods {
+  static inline std::string name() {
+    static std::string id = SystemConfiguration::instance().container_name();
+    std::string str;
+    if (!id.empty())
+      str = "org.anbox.ApplicationManager" + id;
+    else
+      str = "org.anbox.ApplicationManager";
+    return str;
+  }
+
+struct Methods {
     struct Launch {
       static inline std::string name() { return "Launch"; }
       typedef anbox::dbus::interface::ApplicationManager Interface;
@@ -59,6 +78,15 @@ struct Service<anbox::dbus::interface::ApplicationManager> {
   static inline const std::string& interface_name() {
     static const std::string s{"org.anbox.ApplicationManager"};
     return s;
+/*
+    static std::string id = SystemConfiguration::instance().container_name();
+    std::string str;
+    if (!id.empty())
+      str = "org.anbox.ApplicationManager" + id;
+    else
+      str = "org.anbox.ApplicationManager";
+    return str;
+*/
   }
 };
 }  // namespace traits

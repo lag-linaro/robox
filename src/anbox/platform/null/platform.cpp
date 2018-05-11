@@ -68,6 +68,14 @@ void NullPlatform::set_window_manager(const std::shared_ptr<wm::Manager> &window
   ERROR("Not implemented");
 }
 
+void NullPlatform::unset_renderer() {
+  ERROR("Not implemented");
+}
+
+void NullPlatform::unset_window_manager() {
+  ERROR("Not implemented");
+}
+
 bool NullPlatform::supports_multi_window() const {
   return false;
 }

@@ -56,6 +56,7 @@ public:
             Frame frame;
             int task_id;
             int stack_id;
+            int rotation_angle;
         };
         std::vector<Window> updated_windows;
         std::vector<Window> removed_windows;

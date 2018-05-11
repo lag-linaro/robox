@@ -46,15 +46,19 @@ SocketConnection::SocketConnection(
       connections_(connections),
       processor_(processor) {}
 
-SocketConnection::~SocketConnection() noexcept {}
+SocketConnection::~SocketConnection() noexcept {
+  id_ = -1;
+}
 
 void SocketConnection::send(char const* data, size_t length) {
-  message_sender_->send(data, length);
+  if (id_ != -1)
+    message_sender_->send(data, length);
 }
 
 void SocketConnection::read_next_message() {
   auto callback = std::bind(&SocketConnection::on_read_size, this, std::placeholders::_1, std::placeholders::_2);
-  message_receiver_->async_receive_msg(callback, ba::buffer(buffer_));
+  if (id_ != -1)
+    message_receiver_->async_receive_msg(callback, ba::buffer(buffer_));
 }
 
 void SocketConnection::on_read_size(const boost::system::error_code& error, std::size_t bytes_read) {

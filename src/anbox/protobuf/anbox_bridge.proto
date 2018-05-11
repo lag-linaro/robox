@@ -78,6 +78,7 @@ message WindowStateUpdateEvent {
         required int32 frame_bottom = 7;
         required int32 task_id = 8;
         required int32 stack_id = 9;
+        required int32 rotation_angle = 10;
     }
     repeated WindowState windows = 1;
     repeated WindowState removed_windows = 2;
